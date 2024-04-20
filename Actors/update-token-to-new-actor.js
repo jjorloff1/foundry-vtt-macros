@@ -50,14 +50,30 @@ async function main() {
     await newActor.update({"img": desiredImage, "prototypeToken.bar2.attribute": "attributes.ac.normal.total"});
     console.log("Updated new Actor image and prototype.");
 
-    // Update the token on the scene to reflect the bar change
-    let tokenUpdateData = {
-        _id: token.id,
-        "actorId": newActor.id,
-        "bar2.attribute": "attributes.ac.normal.total"
-    };
-    await canvas.scene.updateEmbeddedDocuments('Token', [tokenUpdateData]);
-    console.log("Updated token to point to new Actor and updated bar.");
+    // Iterate through all scenes and get all copies of this token
+    game.scenes.forEach((scene) => {
+        let tokenUpdates = [];
+
+        // Iterate through tokens and see if they match
+        if (scene.tokens.size > 0) {
+            scene.tokens.forEach((token) => {
+                if (token.actor != null && token.actor.id == originalActorId) {
+                    // Update this token to point to the new Actor
+                    tokenUpdates.push({
+                        _id: token.id,
+                        "actorId": newActor.id,
+                        "bar2.attribute": "attributes.ac.normal.total"
+                    });
+                }
+            });
+
+            if (tokenUpdates.length > 0) {
+                // Update the tokens on the scene
+                scene.updateEmbeddedDocuments('Token', tokenUpdates);
+                console.log(`Updated ${tokenUpdates.length} ${newActor.name} tokens on scene ${scene.name}`)
+            }
+        }
+    });
 
     // Rename the original actor
     originalActor = game.actors.get(originalActorId); // one of the other updates removes this
