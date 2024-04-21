@@ -11,6 +11,77 @@
  */
 main();
 
+function findAnotherActorWithSameName(originalActor) {
+    let possibleActors = [];
+    game.actors.forEach((actor) => {
+        // TODO: Is there a way to know if its a library imported one
+        if (actor.name == originalActor.name && actor.id != originalActor.id) {
+            possibleActors.push(actor);
+        }
+    });
+
+    let newActor;
+    if (possibleActors.length == 0) {
+        // TODO: Does this log as well?
+        ui.notifications.error("Could not find a matching Actor to point token at.");
+    } else if (possibleActors.length == 1) {
+        newActor = possibleActors[0];
+    } else if (possibleActors.length > 1) {
+        ui.notifications.warn("Found more than one possible actors, using first.");
+        newActor = possibleActors[0];
+    }
+    return newActor;
+}
+
+async function updateActorWithNewImageAndSetBar2ToAC(newActor, desiredImage) {
+    await newActor.update({"img": desiredImage, "prototypeToken.bar2.attribute": "attributes.ac.normal.total"});
+    console.log("Updated new Actor image and prototype.");
+}
+
+function generateTokenActorTransferUpdates(scene, originalActorId, newActorId) {
+    let tokenUpdates = [];
+    if (scene.tokens.size > 0) {
+        return tokenUpdates;
+    }
+
+    // Iterate through tokens and see if they match
+    scene.tokens.forEach((token) => {
+        if (token.actor != null && token.actor.id == originalActorId) {
+            // Update this token to point to the new Actor
+            tokenUpdates.push({
+                _id: token.id,
+                "actorId": newActorId,
+                "bar2.attribute": "attributes.ac.normal.total"
+            });
+        }
+    });
+
+    return tokenUpdates
+}
+
+function updateTokensOnScene(tokenUpdates, scene, newActor) {
+    if (tokenUpdates == null || tokenUpdates == undefined )
+    if (tokenUpdates.length > 0) {
+        // Update the tokens on the scene
+        scene.updateEmbeddedDocuments('Token', tokenUpdates);
+        console.log(`Updated ${tokenUpdates.length} ${newActor.name} tokens on scene ${scene.name}`)
+    }
+}
+
+function updateAllTokensOfActorOnAllScenesToNewActor(originalActorId, newActor) {
+    game.scenes.forEach((scene) => {
+        let tokenUpdates = generateTokenActorTransferUpdates(scene, originalActorId, newActor.id);
+
+        updateTokensOnScene(tokenUpdates, scene, newActor);
+    });
+}
+
+function deprecateActorName(actorId) {
+    let actor = game.actors.get(actorId); // one of the other updates removes this
+    actor.update({"name": actor.name + " (OLD)"});
+    console.log("Renamed old token for for clarity.")
+}
+
 async function main() {
     // Get selected token
     if (canvas.tokens.controlled.length != 1) {
@@ -24,60 +95,17 @@ async function main() {
     let originalActorId = originalActor.id;
     console.log(`Original Actor ID: ${originalActorId}`);
 
-    // Find the library actor with the same name
-    // TODO: Is there a way to know if its a library imported one
-    let possibleActors = [];
-    game.actors.forEach((actor) => {
-        if (actor.name == originalActor.name && actor.id != originalActor.id) {
-            possibleActors.push(actor);
-        }
-    });
-
-    let newActor;
-    if (possibleActors.length == 0) {
-        ui.notifications.error("Could not find a matching Actor to point token at.");
+    let newActor = findAnotherActorWithSameName(originalActor);
+    if (newActor == null || newActor == undefined) {
         return;
-    } else if (possibleActors.length == 1) {
-        newActor = possibleActors[0];
-    } else if (possibleActors.length > 1) {
-        ui.notifications.warn("Found more than one possible actors, using first.");
-        newActor = possibleActors[0];
     }
     console.log(`New Actor ID: ${newActor.id}`);
 
-    // update the library actor's image and set AC
-    let desiredImage = originalActor.img;
-    await newActor.update({"img": desiredImage, "prototypeToken.bar2.attribute": "attributes.ac.normal.total"});
-    console.log("Updated new Actor image and prototype.");
+    await updateActorWithNewImageAndSetBar2ToAC(newActor, originalActor.img);
 
-    // Iterate through all scenes and get all copies of this token
-    game.scenes.forEach((scene) => {
-        let tokenUpdates = [];
+    updateAllTokensOfActorOnAllScenesToNewActor(originalActorId, newActor);
 
-        // Iterate through tokens and see if they match
-        if (scene.tokens.size > 0) {
-            scene.tokens.forEach((token) => {
-                if (token.actor != null && token.actor.id == originalActorId) {
-                    // Update this token to point to the new Actor
-                    tokenUpdates.push({
-                        _id: token.id,
-                        "actorId": newActor.id,
-                        "bar2.attribute": "attributes.ac.normal.total"
-                    });
-                }
-            });
-
-            if (tokenUpdates.length > 0) {
-                // Update the tokens on the scene
-                scene.updateEmbeddedDocuments('Token', tokenUpdates);
-                console.log(`Updated ${tokenUpdates.length} ${newActor.name} tokens on scene ${scene.name}`)
-            }
-        }
-    });
-
-    // Rename the original actor
-    originalActor = game.actors.get(originalActorId); // one of the other updates removes this
-    await originalActor.update({"name": originalActor.name + " (OLD)"});
-    console.log("Renamed old token for for clarity.")
+    // Rename the original actor to its easy to see
+    deprecateActorName(originalActorId);
     // await game.actors.get(originalActorId).delete();
 }
