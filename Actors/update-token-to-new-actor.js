@@ -11,10 +11,29 @@
  */
 main();
 
-function findAnotherActorWithSameName(originalActor) {
+function isAnyObjectEmpty(...objects) {
+    // isEmpty() is a foundry utility method stored in common.js
+    return !objects.every(object => !isEmpty(object));
+}
+
+async function askUserToConfirmUnexpectedActor(newActor) {
+    return await Dialog.confirm({
+        title: "Unexpected Actor Found",
+        content: "Attempted to find an actor imported from the statblock library with the terror.svg image. " +
+            `Could not find that one, but another actor is available: ${newActor.id}. ` +
+            "Do you wish to update this actor with the selected token?",
+        yes: () => true,
+        no: () => false
+    });
+}
+
+async function findAnotherActorWithSameName(originalActor) {
+    if (isEmpty(originalActor)) {
+        return null;
+    }
+
     let possibleActors = [];
     game.actors.forEach((actor) => {
-        // TODO: Is there a way to know if its a library imported one
         if (actor.name == originalActor.name && actor.id != originalActor.id) {
             possibleActors.push(actor);
         }
@@ -22,25 +41,32 @@ function findAnotherActorWithSameName(originalActor) {
 
     let newActor;
     if (possibleActors.length == 0) {
-        // TODO: Does this log as well?
         ui.notifications.error("Could not find a matching Actor to point token at.");
-    } else if (possibleActors.length == 1) {
-        newActor = possibleActors[0];
-    } else if (possibleActors.length > 1) {
-        ui.notifications.warn("Found more than one possible actors, using first.");
-        newActor = possibleActors[0];
+    } else if (possibleActors.length >= 1) {
+        // Attempt to find an actor imported by the pf1 statblock library (all come with generic terror.svg)
+        newActor = possibleActors.find((actor) => actor.img === "icons/svg/terror.svg")
+
+        if (isEmpty(newActor)) {
+            // Ask the user if they would like to use a non-statblock-library Actor
+            newActor = possibleActors[0];
+
+            if (!await askUserToConfirmUnexpectedActor(newActor)) {
+                return null;
+            }
+        }
     }
     return newActor;
 }
 
 async function updateActorWithNewImageAndSetBar2ToAC(newActor, desiredImage) {
+    // I want to have bar2 represent AC, and the default for the library does not do so, so I update that here
     await newActor.update({"img": desiredImage, "prototypeToken.bar2.attribute": "attributes.ac.normal.total"});
     console.log("Updated new Actor image and prototype.");
 }
 
 function generateTokenActorTransferUpdates(scene, originalActorId, newActorId) {
     let tokenUpdates = [];
-    if (scene.tokens.size > 0) {
+    if (isAnyObjectEmpty(scene, originalActorId, newActorId)) {
         return tokenUpdates;
     }
 
@@ -60,15 +86,20 @@ function generateTokenActorTransferUpdates(scene, originalActorId, newActorId) {
 }
 
 function updateTokensOnScene(tokenUpdates, scene, newActor) {
-    if (tokenUpdates == null || tokenUpdates == undefined )
-    if (tokenUpdates.length > 0) {
-        // Update the tokens on the scene
-        scene.updateEmbeddedDocuments('Token', tokenUpdates);
-        console.log(`Updated ${tokenUpdates.length} ${newActor.name} tokens on scene ${scene.name}`)
+    if (isEmpty(tokenUpdates)) {
+        return;
     }
+
+    // Update the tokens on the scene
+    scene.updateEmbeddedDocuments('Token', tokenUpdates);
+    console.log(`Updated ${tokenUpdates.length} ${newActor.name} tokens on scene ${scene.name}`)
 }
 
 function updateAllTokensOfActorOnAllScenesToNewActor(originalActorId, newActor) {
+    if (isAnyObjectEmpty(originalActorId, newActor)) {
+        return;
+    }
+
     game.scenes.forEach((scene) => {
         let tokenUpdates = generateTokenActorTransferUpdates(scene, originalActorId, newActor.id);
 
@@ -90,13 +121,12 @@ async function main() {
     }
     let token = canvas.tokens.controlled[0]
 
-    // Get its actor
     let originalActor = token.actor;
     let originalActorId = originalActor.id;
     console.log(`Original Actor ID: ${originalActorId}`);
 
-    let newActor = findAnotherActorWithSameName(originalActor);
-    if (newActor == null || newActor == undefined) {
+    let newActor = await findAnotherActorWithSameName(originalActor);
+    if (isEmpty(newActor)) {
         return;
     }
     console.log(`New Actor ID: ${newActor.id}`);
